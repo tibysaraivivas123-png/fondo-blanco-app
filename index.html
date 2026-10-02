@@ -657,7 +657,7 @@
     /* PAYMENT METHOD SELECTOR */
     .pay-methods-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 5px;
       margin-bottom: 14px;
     }
@@ -1098,11 +1098,6 @@
       cursor: pointer;
     }
 
-    .pay-methods-grid {
-      display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 6px;
-    }
 
     #partialPayMethods .pay-method-btn {
       font-size: 11px;
@@ -1676,6 +1671,9 @@
               <div class="pay-method-btn" onclick="selectPayMethod('daviplata', this)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg> Daviplata
               </div>
+              <div class="pay-method-btn" onclick="selectPayMethod('bancolombia', this)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M12 3l9 7H3z"/><line x1="6" y1="10" x2="6" y2="21"/><line x1="10" y1="10" x2="10" y2="21"/><line x1="14" y1="10" x2="14" y2="21"/><line x1="18" y1="10" x2="18" y2="21"/></svg> Bancolombia
+              </div>
               <div class="pay-method-btn" onclick="selectPayMethod('tarjeta', this)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/></svg> Tarjeta
               </div>
@@ -2013,6 +2011,7 @@
           <div style="display:flex; justify-content:space-between; padding:5px 0;"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/></svg> Efectivo:</span><b id="repPayCash">$0</b></div>
           <div style="display:flex; justify-content:space-between; padding:5px 0;"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg> Nequi:</span><b id="repPayNequi">$0</b></div>
           <div style="display:flex; justify-content:space-between; padding:5px 0;"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg> Daviplata:</span><b id="repPayDaviplata">$0</b></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 0;"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M12 3l9 7H3z"/><line x1="6" y1="10" x2="6" y2="21"/><line x1="10" y1="10" x2="10" y2="21"/><line x1="14" y1="10" x2="14" y2="21"/><line x1="18" y1="10" x2="18" y2="21"/></svg> Bancolombia:</span><b id="repPayBancolombia">$0</b></div>
           <div style="display:flex; justify-content:space-between; padding:5px 0;"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/></svg> Tarjeta / Datáfono:</span><b id="repPayCard">$0</b></div>
           <div style="display:flex; justify-content:space-between; padding:5px 0;"><span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> A Fiado:</span><b id="repPayFiado">$0</b></div>
         </div>
@@ -2396,6 +2395,7 @@
       <div class="pay-method-btn" data-method="efectivo" onclick="selectPartialMethod('efectivo')">Efectivo</div>
       <div class="pay-method-btn" data-method="nequi" onclick="selectPartialMethod('nequi')">Nequi</div>
       <div class="pay-method-btn" data-method="daviplata" onclick="selectPartialMethod('daviplata')">Daviplata</div>
+      <div class="pay-method-btn" data-method="bancolombia" onclick="selectPartialMethod('bancolombia')">Bancolombia</div>
       <div class="pay-method-btn" data-method="tarjeta" onclick="selectPartialMethod('tarjeta')">Tarjeta</div>
       <div class="pay-method-btn" data-method="fiado" onclick="selectPartialMethod('fiado')">A Fiado</div>
     </div>
@@ -2487,6 +2487,7 @@
       <option value="efectivo">Efectivo (Entra a la caja de hoy)</option>
       <option value="nequi">Nequi</option>
       <option value="daviplata">Daviplata</option>
+      <option value="bancolombia">Bancolombia</option>
       <option value="tarjeta">Tarjeta</option>
     </select>
 
@@ -4556,7 +4557,7 @@
   }
 
   function payMethodLabel(method) {
-    return { efectivo: 'Efectivo', nequi: 'Nequi', daviplata: 'Daviplata', tarjeta: 'Tarjeta', fiado: 'Fiado' }[method] || method;
+    return { efectivo: 'Efectivo', nequi: 'Nequi', daviplata: 'Daviplata', bancolombia: 'Bancolombia', tarjeta: 'Tarjeta', fiado: 'Fiado' }[method] || method;
   }
 
   function openReceiptModal() {
@@ -5175,7 +5176,7 @@
   }
 
   const MOVE_TYPE_LABEL = { ingreso: 'Venta', gasto: 'Gasto', abono: 'Abono de fiado' };
-  const PAY_LABEL = { efectivo: 'Efectivo', nequi: 'Nequi', daviplata: 'Daviplata', tarjeta: 'Tarjeta', fiado: 'Fiado', transferencia: 'Cuenta externa' };
+  const PAY_LABEL = { efectivo: 'Efectivo', nequi: 'Nequi', daviplata: 'Daviplata', bancolombia: 'Bancolombia', tarjeta: 'Tarjeta', fiado: 'Fiado', transferencia: 'Cuenta externa' };
 
   function movementRowHtml(m, opts = {}) {
     const isExpense = m.tipo === 'gasto';
@@ -5321,7 +5322,7 @@
     } else if (view === 'edit') {
       const payOptions = m.tipo === 'gasto'
         ? [['efectivo', 'Efectivo de la caja'], ['transferencia', 'Cuenta externa / Transferencia']]
-        : [['efectivo', 'Efectivo'], ['nequi', 'Nequi'], ['daviplata', 'Daviplata'], ['tarjeta', 'Tarjeta']];
+        : [['efectivo', 'Efectivo'], ['nequi', 'Nequi'], ['daviplata', 'Daviplata'], ['bancolombia', 'Bancolombia'], ['tarjeta', 'Tarjeta']];
       const catOptions = [...document.querySelectorAll('#expCategory option')].map(o => o.value);
       if (m.categoria && !catOptions.includes(m.categoria)) catOptions.push(m.categoria);
       content = `
@@ -5460,12 +5461,14 @@
     const pCash = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'efectivo').reduce((sum, m) => sum + m.valor, 0);
     const pNequi = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'nequi').reduce((sum, m) => sum + m.valor, 0);
     const pDavi = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'daviplata').reduce((sum, m) => sum + m.valor, 0);
+    const pBanco = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'bancolombia').reduce((sum, m) => sum + m.valor, 0);
     const pCard = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'tarjeta').reduce((sum, m) => sum + m.valor, 0);
     const pFiado = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'fiado').reduce((sum, m) => sum + m.valor, 0);
 
     document.getElementById('repPayCash').textContent = money(pCash);
     document.getElementById('repPayNequi').textContent = money(pNequi);
     document.getElementById('repPayDaviplata').textContent = money(pDavi);
+    document.getElementById('repPayBancolombia').textContent = money(pBanco);
     document.getElementById('repPayCard').textContent = money(pCard);
     document.getElementById('repPayFiado').textContent = money(pFiado);
 
@@ -5517,15 +5520,21 @@
     const grossProfit = sales - cogs;
     const netProfit = grossProfit - expenses;
 
-    const pCash = moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === 'efectivo').reduce((sum, m) => sum + m.valor, 0);
-    const pDigital = sales - pCash;
+    // Un renglón por medio de pago. Antes había un solo "Nequi/Tarjetas"
+    // calculado como ventas - efectivo, que contaba lo FIADO como si fuera
+    // plata que entró al banco.
+    const byMethod = method => moves.filter(m => m.tipo === 'ingreso' && m.metodo_pago === method).reduce((sum, m) => sum + m.valor, 0);
+    const methodLines = [['efectivo', '💵 Efectivo'], ['nequi', '📱 Nequi'], ['daviplata', '📱 Daviplata'], ['bancolombia', '🏦 Bancolombia'], ['tarjeta', '💳 Tarjeta'], ['fiado', '📝 Fiado (por cobrar)']]
+      .map(([method, label]) => [label, byMethod(method)])
+      .filter(([, value]) => value > 0)
+      .map(([label, value]) => `  ${label}: ${money(value)}`)
+      .join('\n');
 
     const text = `📊 *BALANCE - ${state.business.name}*
 📅 Fecha: ${new Date().toLocaleDateString()}
 ━━━━━━━━━━━━━━━━━━━━
 💰 *Ventas Totales:* ${money(sales)}
-  💵 Efectivo: ${money(pCash)}
-  📱 Nequi/Tarjetas: ${money(pDigital)}
+${methodLines}
 💸 *Gastos:* ${money(expenses)}
 📈 *Ganancia Neta:* ${money(netProfit)}
 ━━━━━━━━━━━━━━━━━━━━
