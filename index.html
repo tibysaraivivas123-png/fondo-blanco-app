@@ -1069,6 +1069,52 @@
       cursor: pointer;
     }
 
+    /* COBRAR UNA PARTE */
+    .partial-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+    }
+
+    .partial-row.selected {
+      background: var(--accent-tint);
+      border-color: var(--accent);
+    }
+
+    .partial-qty {
+      min-width: 54px;
+      height: 36px;
+      padding: 0 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface-card);
+      color: var(--text);
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .pay-methods-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    #partialPayMethods .pay-method-btn {
+      font-size: 11px;
+      padding: 10px 2px;
+      text-align: center;
+    }
+
+    #partialConfirmBtn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* PANTALLA DE BLOQUEO (PIN) */
     .lock-screen {
       position: fixed;
@@ -1667,6 +1713,9 @@
 
             <button class="btn-primary btn-block" style="font-size:15px; padding:14px;" onclick="confirmSale()">
               ✓ Cobrar Venta (<span id="cartBtnTotal">$0</span>)
+            </button>
+            <button class="btn-secondary btn-block" id="partialChargeBtn" style="margin-top:8px;" onclick="openPartialChargeModal()" hidden>
+              Cobrar una parte (ej. una parte fiada y otra pagada)
             </button>
           </div>
         </div>
@@ -2322,6 +2371,50 @@
 <div id="movementModal" class="modal-overlay">
   <div class="modal-card" id="movementModalBody">
     <!-- Contenido dinámico -->
+  </div>
+</div>
+
+<!-- MODAL: COBRAR UNA PARTE DE LA CUENTA -->
+<div id="partialChargeModal" class="modal-overlay">
+  <div class="modal-card">
+    <div class="card-header" style="margin-bottom:6px;">
+      <span class="card-title">Cobrar una parte · <span id="partialTicketName"></span></span>
+    </div>
+    <p style="font-size:12px; color:var(--text-muted); margin-bottom:10px;">Marca cuántas unidades de cada producto se cobran ahora. Lo que no marques sigue en la cuenta para cobrarlo después, con otro medio de pago.</p>
+    <div id="partialItems" style="max-height:260px; overflow-y:auto; margin-bottom:10px;"></div>
+
+    <div class="cart-total-banner" style="margin-bottom:10px;">
+      <div>
+        <span style="font-size:11px; color:var(--text-muted); font-weight:800;">ESTA PARTE</span>
+        <div id="partialRemaining" style="font-size:11px; color:var(--text-muted); font-weight:700;"></div>
+      </div>
+      <div class="cart-total-amount" id="partialTotal">$0</div>
+    </div>
+
+    <label>Medio de pago de esta parte</label>
+    <div class="pay-methods-grid" id="partialPayMethods" style="margin-bottom:10px;">
+      <div class="pay-method-btn" data-method="efectivo" onclick="selectPartialMethod('efectivo')">Efectivo</div>
+      <div class="pay-method-btn" data-method="nequi" onclick="selectPartialMethod('nequi')">Nequi</div>
+      <div class="pay-method-btn" data-method="daviplata" onclick="selectPartialMethod('daviplata')">Daviplata</div>
+      <div class="pay-method-btn" data-method="tarjeta" onclick="selectPartialMethod('tarjeta')">Tarjeta</div>
+      <div class="pay-method-btn" data-method="fiado" onclick="selectPartialMethod('fiado')">A Fiado</div>
+    </div>
+
+    <div id="partialFiadoArea" hidden>
+      <label>¿Quién queda debiendo esta parte?</label>
+      <input type="text" id="partialFiadoName" list="fiadosDatalist" placeholder="Nombre del cliente">
+      <input type="tel" id="partialFiadoPhone" placeholder="Teléfono (opcional)" style="margin-top:6px;">
+    </div>
+    <div id="partialCashArea">
+      <label>Paga con (opcional)</label>
+      <input type="number" id="partialCashInput" placeholder="Ej: 20000" oninput="renderPartialCharge()">
+      <div id="partialChange" style="font-size:12px; font-weight:800; color:var(--income); margin-top:4px;"></div>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button class="btn-secondary" style="flex:1;" onclick="closeModal('partialChargeModal')">Cancelar</button>
+      <button class="btn-primary" style="flex:2;" id="partialConfirmBtn" onclick="confirmPartialCharge()">✓ Cobrar esta parte</button>
+    </div>
   </div>
 </div>
 
@@ -3644,7 +3737,7 @@
 
     if (!title) return alert('Por favor indica el título o proveedor de la factura.');
 
-    const invoiceId = 'inv_' + Date.now();
+    const invoiceId = uniqueId('inv_');
     let photoForState = currentInvoiceBase64 || '';
     let archivoId = null;
     if (storageMode === 'idb' && photoForState.startsWith('data:image')) {
@@ -3674,7 +3767,7 @@
     // Si se marcó registrar gasto de caja
     if (registerExpense && amount > 0) {
       const exp = {
-        id: 'exp_' + Date.now(),
+        id: uniqueId('exp_'),
         caja_id: state.activeShift ? state.activeShift.id : null,
         tipo: 'gasto',
         concepto: `Factura: ${title}`,
@@ -4124,6 +4217,7 @@
     const profit = totalAmount - totalCost;
 
     const activeTicket = getActiveTicket();
+    document.getElementById('partialChargeBtn').hidden = totalCount < 2;
     document.getElementById('cartTicketName').textContent = activeTicket.nombre;
     document.getElementById('cartJumpName').textContent = activeTicket.nombre;
     document.getElementById('closeTicketBtn').hidden = tickets.length < 2;
@@ -4236,7 +4330,7 @@
     if (!Number.isInteger(qty) || qty <= 0) return alert('La cantidad debe ser un número entero mayor que 0.');
 
     cart.push({
-      id: 'manual_' + Date.now(),
+      id: uniqueId('manual_'),
       nombre: name,
       precio_venta: price,
       precio_costo: 0,
@@ -4247,65 +4341,56 @@
     renderCart();
   }
 
-  async function confirmSale() {
-    if (cart.length === 0) return alert('Agrega al menos un producto a la cuenta.');
+  // Ids únicos: con "cobrar una parte" se pueden registrar dos ventas en el
+  // mismo milisegundo, y con solo Date.now() quedaban con el mismo id (en la
+  // nube una pisaba a la otra).
+  function uniqueId(prefix) {
+    return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
 
-    const totalSale = cart.reduce((sum, item) => sum + (item.qty * item.precio_venta), 0);
-    const totalCost = cart.reduce((sum, item) => sum + (item.qty * (item.precio_costo || 0)), 0);
+  // Registra UNA venta con los productos dados (la cuenta completa o una
+  // parte). Toda la contabilidad de una venta vive aquí: un solo movimiento
+  // de ingreso, ganancia por producto, stock y deuda del fiado por los
+  // ajustes que viajan a la nube (/pos-invariantes 1, 2, 7).
+  function recordSale(items, { payMethod, fiadoClientName = '', fiadoPhone = '', receivedCash = 0 }) {
+    const totalSale = items.reduce((sum, item) => sum + (item.qty * item.precio_venta), 0);
+    const totalCost = items.reduce((sum, item) => sum + (item.qty * (item.precio_costo || 0)), 0);
     const profit = totalSale - totalCost;
+    const changeGiven = payMethod === 'efectivo' ? Math.max(0, receivedCash - totalSale) : 0;
 
-    let fiadoClientName = '';
-    let fiadoPhone = '';
-    if (selectedPayMethod === 'fiado') {
-      fiadoClientName = (document.getElementById('posFiadoClientInput').value || '').trim();
-      fiadoPhone = (document.getElementById('posFiadoClientPhone').value || '').trim();
-      if (!fiadoClientName) return alert('Por favor indica el nombre del cliente para registrar el fiado.');
-    }
-
-    let receivedCash = 0;
-    let changeGiven = 0;
-    if (selectedPayMethod === 'efectivo') {
-      receivedCash = Number(document.getElementById('cashReceivedInput').value || 0);
-      changeGiven = Math.max(0, receivedCash - totalSale);
-    }
-
-    // Descontar inventario local
-    for (const item of cart) {
+    // Sin tope en 0: la sobreventa queda visible como stock negativo (antes
+    // se perdía, E-3) y el ajuste viaja a la nube como delta exacto.
+    for (const item of items) {
       const prod = state.products.find(p => p.id === item.id);
-      // Sin tope en 0: la sobreventa queda visible como stock negativo (antes
-      // se perdía, E-3) y el ajuste viaja a la nube como delta exacto.
       if (prod) adjustStock(prod, -item.qty);
     }
 
-    const concept = cart.map(i => `${i.qty}x ${i.nombre}`).join(', ');
-
+    const concept = items.map(i => `${i.qty}x ${i.nombre}`).join(', ');
     const newMove = {
-      id: 'mov_' + Date.now(),
+      id: uniqueId('mov_'),
       caja_id: state.activeShift ? state.activeShift.id : null,
       tipo: 'ingreso',
-      concepto: selectedPayMethod === 'fiado' ? `Venta Fiada: ${fiadoClientName} (${concept})` : concept,
+      concepto: payMethod === 'fiado' ? `Venta Fiada: ${fiadoClientName} (${concept})` : concept,
       categoria: 'Venta Bar',
-      metodo_pago: selectedPayMethod,
+      metodo_pago: payMethod,
       valor: totalSale,
       costo_total: totalCost,
       ganancia: profit,
-      detalles: [...cart],
+      detalles: items.map(i => ({ ...i })),
       fecha: new Date().toISOString()
     };
-
     state.movements.unshift(newMove);
 
-    if (selectedPayMethod === 'fiado') {
-      // (el id del fiado se guarda en newMove.fiado_id más abajo, para que
-      // anular la venta sepa exactamente qué deuda bajar)
+    if (payMethod === 'fiado') {
       const existingFiado = state.fiados.find(f => f.cliente_nombre.toLowerCase() === fiadoClientName.toLowerCase() && f.estado === 'pendiente');
       if (existingFiado) {
         adjustFiado(existingFiado, totalSale, 0);
         existingFiado.concepto += `, ${concept}`;
         if (fiadoPhone) existingFiado.telefono = fiadoPhone;
+        newMove.fiado_id = existingFiado.id;
       } else {
-        state.fiados.unshift({
-          id: 'f_' + Date.now(),
+        const nuevo = {
+          id: uniqueId('f_'),
           cliente_nombre: fiadoClientName,
           telefono: fiadoPhone,
           concepto: concept,
@@ -4314,25 +4399,42 @@
           saldo_pendiente: totalSale,
           estado: 'pendiente',
           created_at: new Date().toISOString()
-        });
+        };
+        state.fiados.unshift(nuevo);
+        // (el id del fiado queda en la venta para que anularla sepa
+        // exactamente qué deuda bajar)
+        newMove.fiado_id = nuevo.id;
       }
-      const fiadoOfSale = state.fiados.find(f => f.cliente_nombre.toLowerCase() === fiadoClientName.toLowerCase() && f.estado === 'pendiente');
-      if (fiadoOfSale) newMove.fiado_id = fiadoOfSale.id;
     }
 
     persistLocal();
 
     lastSaleReceipt = {
-      items: [...cart],
+      items: items.map(i => ({ ...i })),
       total: totalSale,
-      payMethod: selectedPayMethod,
+      payMethod,
       client: fiadoClientName,
       phone: fiadoPhone,
       received: receivedCash,
       change: changeGiven,
       date: new Date()
     };
+    return totalSale;
+  }
 
+  async function confirmSale() {
+    if (cart.length === 0) return alert('Agrega al menos un producto a la cuenta.');
+
+    let fiadoClientName = '';
+    let fiadoPhone = '';
+    if (selectedPayMethod === 'fiado') {
+      fiadoClientName = (document.getElementById('posFiadoClientInput').value || '').trim();
+      fiadoPhone = (document.getElementById('posFiadoClientPhone').value || '').trim();
+      if (!fiadoClientName) return alert('Por favor indica el nombre del cliente para registrar el fiado.');
+    }
+    const receivedCash = selectedPayMethod === 'efectivo' ? Number(document.getElementById('cashReceivedInput').value || 0) : 0;
+
+    const totalSale = recordSale(cart, { payMethod: selectedPayMethod, fiadoClientName, fiadoPhone, receivedCash });
     showToast(`✓ Venta guardada por ${money(totalSale)}`);
 
     // Cobrar cierra solo la cuenta activa; las demás mesas siguen abiertas.
@@ -4344,6 +4446,111 @@
     // se daba cuenta y confirmaba de una.
     resetPaymentInputs();
 
+    renderAll();
+    openReceiptModal();
+  }
+
+  // ---------------------------------------------------------------------------
+  // COBRAR UNA PARTE: en una misma mesa, unos productos se pagan y otros se
+  // fían (o se pagan con otro medio). Cada parte es una venta normal con sus
+  // propios productos; lo no cobrado sigue en la cuenta.
+  // ---------------------------------------------------------------------------
+  let partialSel = [];
+  let partialMethod = 'efectivo';
+
+  function openPartialChargeModal() {
+    if (cart.length === 0) return alert('Agrega al menos un producto a la cuenta.');
+    partialSel = cart.map(() => 0);
+    partialMethod = 'efectivo';
+    document.getElementById('partialTicketName').textContent = getActiveTicket().nombre;
+    document.getElementById('partialCashInput').value = '';
+    document.getElementById('partialFiadoName').value = '';
+    document.getElementById('partialFiadoPhone').value = '';
+    renderPartialCharge();
+    document.getElementById('partialChargeModal').classList.add('active');
+  }
+
+  function partialStep(idx, delta) {
+    if (!cart[idx]) return;
+    partialSel[idx] = Math.min(cart[idx].qty, Math.max(0, partialSel[idx] + delta));
+    renderPartialCharge();
+  }
+
+  function partialAll(idx) {
+    if (!cart[idx]) return;
+    partialSel[idx] = partialSel[idx] === cart[idx].qty ? 0 : cart[idx].qty;
+    renderPartialCharge();
+  }
+
+  function selectPartialMethod(method) {
+    partialMethod = method;
+    // Igual que en el cobro normal: el nombre de la cuenta se usa para el
+    // fiado solo si parece de persona ("Juan"), no "Mesa 3".
+    const t = getActiveTicket();
+    const nameInput = document.getElementById('partialFiadoName');
+    if (method === 'fiado' && t && !nameInput.value && !isPlaceTicketName(t.nombre)) nameInput.value = t.nombre;
+    renderPartialCharge();
+  }
+
+  function renderPartialCharge() {
+    const list = document.getElementById('partialItems');
+    list.innerHTML = cart.map((item, idx) => `
+      <div class="partial-row${partialSel[idx] ? ' selected' : ''}">
+        <div style="min-width:0;">
+          <div class="cart-item-title">${escapeHtml(item.nombre)}</div>
+          <div class="cart-item-price">${money(item.precio_venta)} c/u · en la cuenta: ${escapeHtml(item.qty)}</div>
+        </div>
+        <div class="cart-qty-ctrl">
+          <button class="cart-qty-btn" onclick="partialStep(${idx}, -1)" aria-label="Uno menos">−</button>
+          <button class="partial-qty" onclick="partialAll(${idx})" title="Toca para cobrar todas o ninguna">${partialSel[idx]}/${escapeHtml(item.qty)}</button>
+          <button class="cart-qty-btn" onclick="partialStep(${idx}, 1)" aria-label="Uno más">＋</button>
+        </div>
+      </div>`).join('');
+
+    const total = cart.reduce((sum, item, idx) => sum + partialSel[idx] * item.precio_venta, 0);
+    const units = partialSel.reduce((a, b) => a + b, 0);
+    const remaining = cart.reduce((sum, item, idx) => sum + (item.qty - partialSel[idx]) * item.precio_venta, 0);
+    document.getElementById('partialTotal').textContent = money(total);
+    document.getElementById('partialRemaining').textContent = units === 0
+      ? 'Elige qué productos se cobran ahora.'
+      : remaining > 0 ? `Queda en la cuenta: ${money(remaining)}` : 'Se cobra la cuenta completa.';
+
+    document.querySelectorAll('#partialPayMethods .pay-method-btn').forEach(b => b.classList.toggle('active', b.dataset.method === partialMethod));
+    document.getElementById('partialFiadoArea').hidden = partialMethod !== 'fiado';
+    document.getElementById('partialCashArea').hidden = partialMethod !== 'efectivo';
+    const received = Number(document.getElementById('partialCashInput').value || 0);
+    document.getElementById('partialChange').textContent = partialMethod === 'efectivo' && received > 0 ? `Vuelto: ${money(Math.max(0, received - total))}` : '';
+    const btn = document.getElementById('partialConfirmBtn');
+    btn.disabled = units === 0;
+    btn.textContent = `✓ Cobrar esta parte (${money(total)})`;
+  }
+
+  function confirmPartialCharge() {
+    const items = cart.map((item, idx) => ({ ...item, qty: partialSel[idx] })).filter(i => i.qty > 0);
+    if (items.length === 0) return alert('Elige al menos un producto para cobrar.');
+
+    let fiadoClientName = '';
+    let fiadoPhone = '';
+    if (partialMethod === 'fiado') {
+      fiadoClientName = document.getElementById('partialFiadoName').value.trim();
+      fiadoPhone = document.getElementById('partialFiadoPhone').value.trim();
+      if (!fiadoClientName) return alert('Escribe el nombre del cliente que queda debiendo esta parte.');
+    }
+    const receivedCash = partialMethod === 'efectivo' ? Number(document.getElementById('partialCashInput').value || 0) : 0;
+
+    const remaining = cart.map((item, idx) => ({ ...item, qty: item.qty - partialSel[idx] })).filter(i => i.qty > 0);
+    const totalSale = recordSale(items, { payMethod: partialMethod, fiadoClientName, fiadoPhone, receivedCash });
+    closeModal('partialChargeModal');
+
+    if (remaining.length === 0) {
+      // Se cobró todo por partes: la cuenta se cierra como un cobro normal.
+      discardActiveTicket();
+      resetPaymentInputs();
+      showToast(`✓ Última parte cobrada: ${money(totalSale)} · cuenta cerrada`);
+    } else {
+      setActiveItems(remaining);
+      showToast(`✓ Parte cobrada: ${money(totalSale)} · sigue abierta ${getActiveTicket().nombre}`);
+    }
     renderAll();
     openReceiptModal();
   }
@@ -4437,7 +4644,7 @@
     const cashier = document.getElementById('openCashCashier').value.trim() || 'Cajero Principal';
 
     state.activeShift = {
-      id: 'shift_' + Date.now(),
+      id: uniqueId('shift_'),
       opened_at: new Date().toISOString(),
       base: base,
       cashier: cashier
@@ -4624,7 +4831,7 @@
     // perdia su categoria real y quedaba guardado como "cuenta_externa"
     // (ver /pos-invariantes, invariante 4).
     const newExpense = {
-      id: 'exp_' + Date.now(),
+      id: uniqueId('exp_'),
       caja_id: state.activeShift ? state.activeShift.id : null,
       tipo: 'gasto',
       concepto: concept,
@@ -4701,7 +4908,7 @@
       }
     } else {
       state.products.push({
-        id: 'p_' + Date.now(),
+        id: uniqueId('p_'),
         nombre: name,
         categoria: cat,
         precio_costo: cost,
@@ -4750,7 +4957,7 @@
 
     if (expOption !== 'no' && totalCost > 0) {
       const expMove = {
-        id: 'exp_' + Date.now(),
+        id: uniqueId('exp_'),
         caja_id: state.activeShift ? state.activeShift.id : null,
         tipo: 'gasto',
         concepto: `Compra mercancía: ${qty}x ${prod.nombre}`,
@@ -4840,7 +5047,7 @@
     if (!name || amount <= 0) return alert('Completa el nombre y el monto adeudado.');
 
     state.fiados.unshift({
-      id: 'f_' + Date.now(),
+      id: uniqueId('f_'),
       cliente_nombre: name,
       telefono: phone,
       concepto: concept,
@@ -4883,7 +5090,7 @@
     // una venta nueva - si tambien sumara a "ingreso"/"ganancia" aqui, el
     // reporte contaria el mismo dinero dos veces (ver /pos-invariantes).
     const moveAbono = {
-      id: 'mov_abono_' + Date.now(),
+      id: uniqueId('mov_abono_'),
       caja_id: state.activeShift ? state.activeShift.id : null,
       tipo: 'abono',
       concepto: `Abono de fiado: ${f.cliente_nombre}`,
