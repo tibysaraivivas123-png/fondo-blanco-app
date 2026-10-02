@@ -1069,6 +1069,20 @@
       cursor: pointer;
     }
 
+    /* CALCULADORA DE ARQUEO */
+    .cash-calc-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .cash-calc-row span {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--text-muted);
+      letter-spacing: 0.3px;
+    }
+
     /* COBRAR UNA PARTE */
     .partial-row {
       display: flex;
@@ -1778,7 +1792,7 @@
         </div>
 
         <div style="display:flex; justify-content:space-between; background:var(--surface-card-hover); padding:10px 14px; border-radius:8px; font-size:12px; margin-bottom:16px;">
-          <span style="color:var(--text-muted);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg> Ventas Digitales (Nequi / Tarjetas):</span>
+          <span style="color:var(--text-muted);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg> Pagos digitales (Nequi, Daviplata, Bancolombia, Tarjeta):</span>
           <b id="cShiftDigitalSales">$0</b>
         </div>
 
@@ -4668,6 +4682,7 @@
       cashier: cashier
     };
 
+    resetCashCount();
     persistLocal();
     showToast('¡Turno de caja abierto con éxito!');
     renderCashScreen();
@@ -4678,10 +4693,36 @@
   // guarde como NUMBER en el historial en vez de leer el texto formateado
   // ("$ 123.456") desde el DOM - un string ahi rompe cualquier suma futura
   // sobre el historial de arqueos (ver /pos-invariantes, invariante 5).
-  let lastPhysicalCount = 0;
-  let lastCashDiff = 0;
+  let lastPhysicalCount = null;
+  let lastCashDiff = null;
+
+  const CASH_COUNT_FIELDS = ['b100k', 'b50k', 'b20k', 'b10k', 'b5k', 'b2k', 'coinsTotal'];
+
+  // "No se contó" es distinto de "se contó $0". Antes no se distinguían:
+  // cerrar sin contar guardaba un faltante de todo el turno o, peor, el
+  // conteo que había quedado escrito del turno anterior (C-1, auditoría
+  // 2026-10-02), que podía mostrar "caja exacta" sin que nadie contara.
+  function cashCountEntered() {
+    return CASH_COUNT_FIELDS.some(id => document.getElementById(id).value.trim() !== '');
+  }
+
+  function resetCashCount() {
+    CASH_COUNT_FIELDS.forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('closeShiftNotes').value = '';
+    lastPhysicalCount = null;
+    lastCashDiff = null;
+  }
 
   function sumCashCount() {
+    if (!cashCountEntered()) {
+      lastPhysicalCount = null;
+      lastCashDiff = null;
+      document.getElementById('cShiftPhysicalCount').textContent = 'Sin contar';
+      const diffEl = document.getElementById('cShiftDifference');
+      diffEl.textContent = 'Cuenta el efectivo para ver el cuadre';
+      diffEl.style.color = 'var(--text-muted)';
+      return;
+    }
     const b100 = Number(document.getElementById('b100k').value || 0) * 100000;
     const b50 = Number(document.getElementById('b50k').value || 0) * 50000;
     const b20 = Number(document.getElementById('b20k').value || 0) * 20000;
@@ -4752,26 +4793,36 @@
 
   function finishCashShift() {
     if (!state.activeShift) return;
+    // Sin conteo no se cierra "a ciegas": se avisa y se ofrece cerrar como
+    // "sin arqueo" (sin sobrante ni faltante inventados).
+    if (!cashCountEntered()) return openShiftModal('close-uncounted');
     if (!confirm('¿Seguro que deseas cerrar el turno de caja actual?')) return;
+    closeCashShift(false);
+  }
 
-    const expected = calculateExpectedCashInShift();
-    const notes = document.getElementById('closeShiftNotes').value.trim();
+  function closeCashShift(sinArqueo) {
+    if (!state.activeShift) return;
+    // La diferencia se calcula AHORA, no con el último cálculo en pantalla:
+    // si entró una venta después de contar, el esperado cambió.
+    if (!sinArqueo) sumCashCount();
 
     const closedRecord = {
       ...state.activeShift,
       closed_at: new Date().toISOString(),
-      expected_cash: expected,
-      counted_cash: lastPhysicalCount,
-      diferencia: lastCashDiff,
-      notes: notes
+      expected_cash: calculateExpectedCashInShift(),
+      counted_cash: sinArqueo ? null : lastPhysicalCount,
+      diferencia: sinArqueo ? null : lastCashDiff,
+      sin_arqueo: !!sinArqueo,
+      notes: document.getElementById('closeShiftNotes').value.trim()
     };
 
     state.shifts.unshift(closedRecord);
     state.activeShift = null;
+    resetCashCount();
     persistLocal();
 
-    showToast('Turno cerrado y arqueo guardado');
-    renderCashScreen();
+    closeModal('shiftModal');
+    showToast(sinArqueo ? 'Turno cerrado sin arqueo' : 'Turno cerrado y arqueo guardado');
     renderAll();
   }
 
@@ -4805,7 +4856,8 @@
       hist.innerHTML = `<div class="empty-state">No hay turnos cerrados aún.</div>`;
     } else {
       hist.innerHTML = state.shifts.slice(0, 5).map(s => {
-        const physicalText = typeof s.counted_cash === 'number' ? money(s.counted_cash) : (s.counted_cash || money(s.expected_cash));
+        // Antes, sin conteo se mostraba el ESPERADO como si fuera lo contado.
+        const physicalText = s.sin_arqueo ? null : (typeof s.counted_cash === 'number' ? money(s.counted_cash) : (s.counted_cash || null));
         let diffText = '';
         let diffColor = 'var(--text-muted)';
         if (typeof s.diferencia === 'number') {
@@ -4823,7 +4875,7 @@
             </div>
           </div>
           <div style="text-align:right;">
-            <div class="move-val" style="color:var(--text); font-size:12px;">Físico: ${escapeHtml(physicalText)}</div>
+            <div class="move-val" style="color:${physicalText ? 'var(--text)' : 'var(--warn)'}; font-size:12px;">${physicalText ? 'Físico: ' + escapeHtml(physicalText) : 'Sin arqueo'}</div>
             ${diffText ? `<div style="font-size:10.5px; font-weight:700; color:${diffColor}; margin-top:2px;">${diffText}</div>` : ''}
           </div>
         </div>
@@ -4876,6 +4928,16 @@
           <button class="btn-secondary" style="flex:1;" onclick="closeModal('shiftModal')">Volver</button>
           <button class="btn-primary" style="flex:1;" onclick="saveShiftBase()">Guardar base</button>
         </div>`;
+    } else if (view === 'close-uncounted') {
+      if (!active) return;
+      html = `
+        <div class="card-header" style="margin-bottom:8px;"><span class="card-title">No contaste el efectivo</span></div>
+        <p style="font-size:12.5px; margin-bottom:8px;">El turno espera <b>${money(calculateExpectedCashInShift())}</b> en efectivo, pero la calculadora de conteo está vacía.</p>
+        <div class="mv-note">Si cierras así, el turno queda como <b>"Sin arqueo"</b>: no se registra sobrante ni faltante, porque nadie contó la plata.</div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-primary" style="flex:1;" onclick="closeModal('shiftModal'); document.getElementById('b100k').focus();">Volver a contar</button>
+          <button class="btn-secondary" style="flex:1;" onclick="closeCashShift(true)">Cerrar sin arqueo</button>
+        </div>`;
     } else if (view === 'cancel') {
       if (!active) return;
       const moves = shiftLiveMovements(active.id);
@@ -4903,7 +4965,7 @@
             <dt>Cerró</dt><dd>${escapeHtml(new Date(sh.closed_at).toLocaleString())}</dd>
             <dt>Base</dt><dd>${money(sh.base)}</dd>
             <dt>Esperado</dt><dd>${money(sh.expected_cash)}</dd>
-            <dt>Contado</dt><dd>${typeof sh.counted_cash === 'number' ? money(sh.counted_cash) : '—'}</dd>
+            <dt>Contado</dt><dd>${sh.sin_arqueo ? '<span style="color:var(--warn);">Sin arqueo (no se contó el efectivo)</span>' : typeof sh.counted_cash === 'number' ? money(sh.counted_cash) : '—'}</dd>
             ${diff !== null ? `<dt>Diferencia</dt><dd style="color:${diff === 0 ? 'var(--income)' : diff > 0 ? 'var(--warn)' : 'var(--expense)'};">${diff === 0 ? 'Caja exacta' : (diff > 0 ? '+' : '-') + money(Math.abs(diff))}</dd>` : ''}
             ${sh.notes ? `<dt>Notas</dt><dd>${escapeHtml(sh.notes)}</dd>` : ''}
             <dt>Movimientos</dt><dd>${moves.length}</dd>
