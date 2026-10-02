@@ -1752,6 +1752,11 @@
           <span style="color:var(--income); font-weight:800; font-size:12px;">● ABIERTA</span>
         </div>
 
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <button class="btn-secondary btn-sm" style="flex:1;" onclick="openShiftModal('base')">Corregir base</button>
+          <button class="btn-secondary btn-sm" style="flex:1; color:var(--expense);" onclick="openShiftModal('cancel')">Cancelar turno</button>
+        </div>
+
         <div style="background:var(--surface-inset); border-radius:var(--radius-sm); padding:14px; margin-bottom:14px; border:1px solid var(--border);">
           <div style="display:flex; justify-content:space-between; margin-bottom:7px; font-size:12.5px;">
             <span style="color:var(--text-muted);">(+) Base inicial:</span>
@@ -2369,6 +2374,13 @@
 <!-- MODAL: DETALLE DE MOVIMIENTO (ver, editar, anular - sprint 3) -->
 <div id="movementModal" class="modal-overlay">
   <div class="modal-card" id="movementModalBody">
+    <!-- Contenido dinámico -->
+  </div>
+</div>
+
+<!-- MODAL: TURNO DE CAJA (corregir base, cancelar, ver, anular, borrar) -->
+<div id="shiftModal" class="modal-overlay">
+  <div class="modal-card" id="shiftModalBody">
     <!-- Contenido dinámico -->
   </div>
 </div>
@@ -3220,10 +3232,15 @@
         await saveSyncMeta();
       }
 
-      // Borrados en este dispositivo (productos, facturas, fiados).
+      // Borrados en este dispositivo. La tabla turnos no tiene columna
+      // eliminado: el turno borrado sube como marca mínima { id, borrado }
+      // y cada dispositivo que la baja lo quita.
       const removed = Object.keys(pushed).filter(id => !localIds.has(id));
-      if (removed.length && table !== 'turnos') {
-        const { error } = await sb.from(table).upsert(withNegocio(removed.map(id => ({ id, data: { id }, eliminado: true }))), { onConflict: 'negocio_id,id' });
+      if (removed.length) {
+        const rows = table === 'turnos'
+          ? removed.map(id => ({ id, data: { id, borrado: true } }))
+          : removed.map(id => ({ id, data: { id }, eliminado: true }));
+        const { error } = await sb.from(table).upsert(withNegocio(rows), { onConflict: 'negocio_id,id' });
         if (error) throw error;
         if (table === 'facturas') {
           await sb.storage.from('facturas').remove(removed.map(id => `${negocioId}/${id}.jpg`)).catch(() => {});
@@ -3328,7 +3345,7 @@
       // la próxima vuelta), pero los contadores sí se toman del servidor.
       const localDirty = syncMeta.linked && local && pushed[row.id] !== hashRow(ROW_BUILDERS[table](local));
 
-      if (row.eliminado) {
+      if (row.eliminado || (row.data && row.data.borrado)) {
         if (local && !localDirty) { removeIds.add(row.id); changed = true; }
         if (!localDirty) delete pushed[row.id];
         continue;
@@ -4797,9 +4814,9 @@
           else { diffText = `-${money(Math.abs(s.diferencia))} faltante`; diffColor = 'var(--expense)'; }
         }
         return `
-        <div class="movement-row">
+        <div class="movement-row clickable${s.anulado ? ' voided' : ''}" onclick="openShiftModal('detail', ${jsArg(s.id)})">
           <div>
-            <div class="move-title">Turno cerrado por ${escapeHtml(s.cashier)}</div>
+            <div class="move-title">Turno cerrado por ${escapeHtml(s.cashier)}${s.anulado ? '<span class="void-tag">ANULADO</span>' : ''}</div>
             <div class="move-meta">
               <span>${new Date(s.closed_at).toLocaleDateString()}</span>
               <span>Base: ${money(s.base)}</span>
@@ -4813,6 +4830,173 @@
       `;
       }).join('');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // TURNOS: corregir base, cancelar el abierto, anular o borrar uno cerrado
+  // ---------------------------------------------------------------------------
+  // Ventas y gastos quedan amarrados a su turno (caja_id). Por eso un turno
+  // con movimientos no se cancela: se cierra normal (su arqueo queda) y, si
+  // sobra, se anula o borra desde el historial. Borrar un turno NO borra sus
+  // ventas: siguen en los reportes hasta que se anulen aparte.
+  function shiftLiveMovements(shiftId) {
+    return state.movements.filter(m => isLiveMovement(m) && m.caja_id === shiftId);
+  }
+
+  function shiftHistoryHtml(shift) {
+    if (!(shift.historial || []).length) return '';
+    return `
+      <div class="mv-history">
+        <b style="font-size:12px;">Historial de cambios</b>
+        ${shift.historial.map(h => `
+          <div class="mv-history-item">
+            <div><b>${escapeHtml(h.accion)}</b> · ${escapeHtml(new Date(h.fecha).toLocaleString())} · ${escapeHtml(h.por)}</div>
+            ${h.antes !== undefined ? `<div>Base: ${money(h.antes)} → ${money(h.despues)}</div>` : ''}
+            <div style="color:var(--text-muted);">Motivo: ${escapeHtml(h.motivo)}</div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  function openShiftModal(view, shiftId) {
+    const body = document.getElementById('shiftModalBody');
+    const active = state.activeShift;
+    let html = '';
+
+    if (view === 'base') {
+      if (!active) return;
+      html = `
+        <div class="card-header" style="margin-bottom:8px;"><span class="card-title">Corregir base del turno</span></div>
+        <p style="font-size:12.5px; margin-bottom:8px;">Base actual: <b>${money(active.base)}</b>. El efectivo esperado del arqueo se recalcula con la base nueva.</p>
+        <label>Base correcta</label>
+        <input type="number" id="shiftNewBase" min="0" value="${escapeHtml(active.base)}">
+        <label>Motivo (obligatorio)</label>
+        <input type="text" id="shiftReason" maxlength="120" placeholder="Ej: se contó mal el sencillo al abrir">
+        ${shiftHistoryHtml(active)}
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="btn-secondary" style="flex:1;" onclick="closeModal('shiftModal')">Volver</button>
+          <button class="btn-primary" style="flex:1;" onclick="saveShiftBase()">Guardar base</button>
+        </div>`;
+    } else if (view === 'cancel') {
+      if (!active) return;
+      const moves = shiftLiveMovements(active.id);
+      html = moves.length ? `
+        <div class="card-header" style="margin-bottom:8px;"><span class="card-title">Cancelar turno</span></div>
+        <div class="mv-note danger">Este turno ya tiene ${moves.length} ${moves.length === 1 ? 'movimiento' : 'movimientos'} (ventas, gastos o abonos). Cancelarlo dejaría esa plata fuera de cualquier arqueo.</div>
+        <p style="font-size:12.5px; margin-bottom:10px;">Ciérralo normalmente desde "Cerrar turno". Si fue un turno de prueba, después puedes anularlo o borrarlo desde <b>Turnos recientes</b>, y anular sus ventas aparte.</p>
+        <button class="btn-secondary btn-block" onclick="closeModal('shiftModal')">Entendido</button>` : `
+        <div class="card-header" style="margin-bottom:8px;"><span class="card-title">Cancelar turno</span></div>
+        <p style="font-size:12.5px; margin-bottom:10px;">Se descarta el turno abierto a las <b>${escapeHtml(new Date(active.opened_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</b> por <b>${escapeHtml(active.cashier)}</b> con base <b>${money(active.base)}</b>. No tuvo movimientos, así que no queda en el historial.</p>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-secondary" style="flex:1;" onclick="closeModal('shiftModal')">Volver</button>
+          <button class="btn-primary" style="flex:1; background:var(--expense); border-color:var(--expense); color:#fff;" onclick="cancelActiveShift()">Cancelar turno</button>
+        </div>`;
+    } else {
+      const sh = state.shifts.find(x => x.id === shiftId);
+      if (!sh) return;
+      const moves = shiftLiveMovements(sh.id);
+      const diff = typeof sh.diferencia === 'number' ? sh.diferencia : null;
+      const header = `<div class="card-header" style="margin-bottom:8px;"><span class="card-title">Turno de ${escapeHtml(sh.cashier)}${sh.anulado ? '<span class="void-tag">ANULADO</span>' : ''}</span></div>`;
+      if (view === 'detail') {
+        html = header + `
+          <dl class="mv-grid">
+            <dt>Abrió</dt><dd>${escapeHtml(new Date(sh.opened_at).toLocaleString())}</dd>
+            <dt>Cerró</dt><dd>${escapeHtml(new Date(sh.closed_at).toLocaleString())}</dd>
+            <dt>Base</dt><dd>${money(sh.base)}</dd>
+            <dt>Esperado</dt><dd>${money(sh.expected_cash)}</dd>
+            <dt>Contado</dt><dd>${typeof sh.counted_cash === 'number' ? money(sh.counted_cash) : '—'}</dd>
+            ${diff !== null ? `<dt>Diferencia</dt><dd style="color:${diff === 0 ? 'var(--income)' : diff > 0 ? 'var(--warn)' : 'var(--expense)'};">${diff === 0 ? 'Caja exacta' : (diff > 0 ? '+' : '-') + money(Math.abs(diff))}</dd>` : ''}
+            ${sh.notes ? `<dt>Notas</dt><dd>${escapeHtml(sh.notes)}</dd>` : ''}
+            <dt>Movimientos</dt><dd>${moves.length}</dd>
+            ${sh.anulado ? `<dt>Anulado</dt><dd>${escapeHtml(new Date(sh.anulado_at).toLocaleString())}<br>${escapeHtml(sh.anulado_motivo)}</dd>` : ''}
+          </dl>
+          ${shiftHistoryHtml(sh)}
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${sh.anulado ? '' : `<button class="btn-secondary" style="flex:1;" onclick="openShiftModal('void', ${jsArg(sh.id)})">Anular</button>`}
+            <button class="btn-secondary" style="flex:1; color:var(--expense);" onclick="openShiftModal('delete', ${jsArg(sh.id)})">Borrar</button>
+            <button class="btn-secondary" style="flex:1;" onclick="closeModal('shiftModal')">Cerrar</button>
+          </div>`;
+      } else if (view === 'void') {
+        html = header + `
+          <p style="font-size:12.5px; margin-bottom:8px;">El turno queda tachado en el historial con su motivo. Sus ${moves.length} ventas/gastos <b>no se tocan</b>: siguen en los reportes (anúlalos aparte si también sobran).</p>
+          <label>Motivo (obligatorio)</label>
+          <input type="text" id="shiftReason" maxlength="120" placeholder="Ej: turno de prueba, duplicado">
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button class="btn-secondary" style="flex:1;" onclick="openShiftModal('detail', ${jsArg(sh.id)})">Volver</button>
+            <button class="btn-primary" style="flex:1; background:var(--expense); border-color:var(--expense); color:#fff;" onclick="voidShift(${jsArg(sh.id)})">Anular turno</button>
+          </div>`;
+      } else if (view === 'delete') {
+        html = header + `
+          <div class="mv-note danger">Se borra este turno del historial <b>en todos los dispositivos</b>, sin dejar rastro. No se puede deshacer.</div>
+          ${moves.length ? `<p style="font-size:12.5px; margin-bottom:10px;">Sus <b>${moves.length}</b> ventas/gastos <b>no se borran</b>: siguen en los reportes. Si también sobran, anúlalos desde Reportes antes o después.</p>` : ''}
+          <p style="font-size:12.5px; margin-bottom:6px;">Si solo quieres sacarlo de cuentas pero conservar el registro, usa <b>Anular</b>.</p>
+          <label>Escribe BORRAR para confirmar</label>
+          <input type="text" id="shiftDeleteConfirm" autocomplete="off" placeholder="BORRAR">
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button class="btn-secondary" style="flex:1;" onclick="openShiftModal('detail', ${jsArg(sh.id)})">Volver</button>
+            <button class="btn-primary" style="flex:1; background:var(--expense); border-color:var(--expense); color:#fff;" onclick="deleteShift(${jsArg(sh.id)})">Borrar definitivamente</button>
+          </div>`;
+      }
+    }
+
+    body.innerHTML = html;
+    document.getElementById('shiftModal').classList.add('active');
+  }
+
+  function shiftReason() {
+    const el = document.getElementById('shiftReason');
+    return el ? el.value.trim() : '';
+  }
+
+  function saveShiftBase() {
+    const active = state.activeShift;
+    if (!active) return;
+    const newBase = Number(document.getElementById('shiftNewBase').value);
+    if (!Number.isFinite(newBase) || newBase < 0) return alert('Escribe una base válida (0 o más).');
+    const reason = shiftReason();
+    if (reason.length < 3) return alert('Escribe el motivo de la corrección.');
+    if (newBase === active.base) return alert('La base es la misma; no hay nada que corregir.');
+    active.historial = [...(active.historial || []), { fecha: new Date().toISOString(), accion: 'Base corregida', por: currentActor(), motivo: reason, antes: active.base, despues: newBase }];
+    active.base = newBase;
+    persistLocal();
+    closeModal('shiftModal');
+    renderAll();
+    showToast(`✓ Base corregida a ${money(newBase)}`);
+  }
+
+  function cancelActiveShift() {
+    const active = state.activeShift;
+    if (!active) return;
+    if (shiftLiveMovements(active.id).length) return openShiftModal('cancel');
+    state.activeShift = null;
+    persistLocal();
+    closeModal('shiftModal');
+    renderAll();
+    showToast('Turno cancelado');
+  }
+
+  function voidShift(shiftId) {
+    const sh = state.shifts.find(x => x.id === shiftId);
+    if (!sh || sh.anulado) return;
+    const reason = shiftReason();
+    if (reason.length < 3) return alert('Escribe el motivo de la anulación.');
+    sh.anulado = true;
+    sh.anulado_at = new Date().toISOString();
+    sh.anulado_motivo = reason;
+    sh.historial = [...(sh.historial || []), { fecha: sh.anulado_at, accion: 'Turno anulado', por: currentActor(), motivo: reason }];
+    persistLocal();
+    renderAll();
+    openShiftModal('detail', shiftId);
+    showToast('Turno anulado');
+  }
+
+  function deleteShift(shiftId) {
+    const confirmText = (document.getElementById('shiftDeleteConfirm').value || '').trim().toUpperCase();
+    if (confirmText !== 'BORRAR') return alert('Escribe BORRAR para confirmar.');
+    state.shifts = state.shifts.filter(x => x.id !== shiftId);
+    persistLocal();
+    closeModal('shiftModal');
+    renderAll();
+    showToast('Turno borrado');
   }
 
   // ---------------------------------------------------------------------------

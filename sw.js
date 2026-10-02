@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fondo-blanco-bar-v13';
+const CACHE_NAME = 'fondo-blanco-bar-v14';
 const ASSETS = [
   './',
   './index.html',
