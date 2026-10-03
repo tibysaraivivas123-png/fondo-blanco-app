@@ -773,7 +773,7 @@
       width: 100%;
       height: 120px;
       object-fit: cover;
-      background: #111a2d;
+      background: var(--surface-inset);   /* era #111a2d: resto de la paleta oscura vieja */
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1067,6 +1067,37 @@
       text-decoration: underline dotted;
       text-underline-offset: 3px;
       cursor: pointer;
+    }
+
+    /* FACTURAS EN PDF */
+    .pdf-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface-inset);
+      color: var(--accent);
+    }
+
+    .pdf-chip b {
+      display: block;
+      color: var(--text);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .invoice-thumb.pdf {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      color: var(--accent);
+      font-size: 10.5px;
+      font-weight: 800;
     }
 
     /* CALCULADORA DE ARQUEO */
@@ -2222,6 +2253,11 @@
     <label>Tomar Foto o Seleccionar Archivo</label>
     <input type="file" id="invFileInput" accept="image/*,application/pdf" capture="environment" onchange="handleInvoiceFileSelected(event)">
 
+    <div id="invPdfPreview" class="pdf-chip" hidden>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div style="min-width:0;"><b id="invPdfName"></b><div id="invPdfSize" style="font-size:11px; color:var(--text-muted);"></div></div>
+    </div>
+
     <div id="invPreviewBox" style="display:none; text-align:center; margin-bottom:12px;">
       <img id="invPreviewImg" style="max-height:160px; max-width:100%; border-radius:8px; border:1px solid var(--border);">
     </div>
@@ -2276,6 +2312,12 @@
     </div>
     <div style="background:var(--surface-inset); border-radius:8px; padding:10px; margin-bottom:12px;">
       <img id="viewerImg" style="max-height:65vh; max-width:100%; border-radius:6px; object-fit:contain;">
+      <div id="viewerPdf" hidden style="padding:16px 8px; text-align:center;">
+        <div style="color:var(--accent);"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+        <div id="viewerPdfName" style="font-weight:800; margin:6px 0 10px; overflow-wrap:anywhere;"></div>
+        <a id="viewerPdfLink" class="btn-primary" target="_blank" rel="noopener" style="display:inline-block; text-decoration:none; padding:10px 18px;">Abrir PDF</a>
+        <p id="viewerPdfMsg" style="font-size:12px; color:var(--text-muted); margin-top:8px;"></p>
+      </div>
     </div>
     <div id="viewerMeta" style="font-size:12px; color:var(--text-muted); text-align:left; margin-bottom:12px;"></div>
     <button class="btn-danger btn-sm" onclick="deleteCurrentViewedInvoice()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Eliminar Documento</button>
@@ -2608,6 +2650,13 @@
   let activeInvoiceFilter = 'Todos';
   let lastSaleReceipt = null;
   let currentInvoiceBase64 = null;
+  let currentInvoicePdf = null;
+  const MAX_INVOICE_FILE_BYTES = 5 * 1024 * 1024;     // igual al límite del bucket
+  const LEGACY_PDF_PLACEHOLDER = 'data:application/pdf;base64,doc';
+
+  function isPdfInvoice(inv) {
+    return inv.tipo_archivo === 'application/pdf' || inv.url_archivo === LEGACY_PDF_PLACEHOLDER;
+  }
   let currentViewedInvoiceId = null;
 
   let supabaseClient = null;
@@ -2883,8 +2932,9 @@
   // Blob en 'files'. La factura queda con archivo_id y url_archivo vacío.
   async function extractInvoicePhotos(target) {
     for (const inv of (target.invoices || [])) {
-      if (inv.url_archivo && inv.url_archivo.startsWith('data:image')) {
-        const blob = await (await fetch(inv.url_archivo)).blob();
+      const url = inv.url_archivo || '';
+      if (url.startsWith('data:image') || (url.startsWith('data:application/pdf') && url !== LEGACY_PDF_PLACEHOLDER)) {
+        const blob = await (await fetch(url)).blob();
         await idbPut('files', inv.id, blob);
         inv.archivo_id = inv.id;
         inv.url_archivo = '';
@@ -3210,8 +3260,9 @@
     if (!inv.archivo_id || inv.foto_path) return;
     const blob = await idbGet('files', inv.archivo_id).catch(() => null);
     if (!blob) return;
-    const path = `${negocioId}/${inv.id}.jpg`;
-    const { error } = await supabaseClient.storage.from('facturas').upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg' });
+    const isPdf = inv.tipo_archivo === 'application/pdf';
+    const path = `${negocioId}/${inv.id}.${isPdf ? 'pdf' : 'jpg'}`;
+    const { error } = await supabaseClient.storage.from('facturas').upload(path, blob, { upsert: true, contentType: blob.type || (isPdf ? 'application/pdf' : 'image/jpeg') });
     if (error) throw error;
     inv.foto_path = path;
   }
@@ -3269,7 +3320,7 @@
         const { error } = await sb.from(table).upsert(withNegocio(rows), { onConflict: 'negocio_id,id' });
         if (error) throw error;
         if (table === 'facturas') {
-          await sb.storage.from('facturas').remove(removed.map(id => `${negocioId}/${id}.jpg`)).catch(() => {});
+          await sb.storage.from('facturas').remove(removed.flatMap(id => [`${negocioId}/${id}.jpg`, `${negocioId}/${id}.pdf`])).catch(() => {});
         }
       }
       removed.forEach(id => delete pushed[id]);
@@ -3731,6 +3782,8 @@
     document.getElementById('invAmount').value = '';
     document.getElementById('invPreviewBox').style.display = 'none';
     document.getElementById('invFileInput').value = '';
+    document.getElementById('invPdfPreview').hidden = true;
+    currentInvoicePdf = null;
     document.getElementById('invRegisterAsExpense').checked = true;
     document.getElementById('invPaymentSource').value = 'efectivo_caja';
     document.getElementById('invPaymentSourceBox').hidden = false;
@@ -3741,6 +3794,9 @@
   function handleInvoiceFileSelected(event) {
     const file = event.target.files[0];
     if (!file) return;
+
+    currentInvoicePdf = null;
+    document.getElementById('invPdfPreview').hidden = true;
 
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
@@ -3765,16 +3821,37 @@
           document.getElementById('invPreviewImg').src = currentInvoiceBase64;
           document.getElementById('invPreviewBox').style.display = 'block';
         };
+        // Una foto dañada o en un formato que el navegador no abre fallaba
+        // en silencio: se podía guardar la factura creyendo que tenía foto.
+        img.onerror = () => {
+          currentInvoiceBase64 = null;
+          event.target.value = '';
+          document.getElementById('invPreviewBox').style.display = 'none';
+          alert('No se pudo abrir esa imagen (puede estar dañada o en un formato no compatible). Toma la foto de nuevo.');
+        };
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
-    } else {
-      // PDF
-      currentInvoiceBase64 = 'data:application/pdf;base64,doc';
+    } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      // Antes se guardaba el texto 'data:application/pdf;base64,doc' en vez
+      // del archivo: el PDF se perdía (A-3 / F-7). Ahora se guarda el Blob
+      // real, igual que las fotos.
+      const clearInput = () => { event.target.value = ''; };
+      if (storageMode !== 'idb') { clearInput(); return alert('Este navegador no permite guardar PDF en el dispositivo. Toma una foto de la factura en su lugar.'); }
+      if (file.size > MAX_INVOICE_FILE_BYTES) { clearInput(); return alert(`El PDF pesa ${(file.size / 1048576).toFixed(1)} MB; el máximo es 5 MB. Toma una foto de la factura en su lugar.`); }
+      currentInvoiceBase64 = null;
+      currentInvoicePdf = file;
       document.getElementById('invPreviewBox').style.display = 'none';
-      showToast('Documento PDF seleccionado');
+      document.getElementById('invPdfName').textContent = file.name || 'Documento PDF';
+      document.getElementById('invPdfSize').textContent = `${Math.max(1, Math.round(file.size / 1024))} KB`;
+      document.getElementById('invPdfPreview').hidden = false;
+    } else {
+      event.target.value = '';
+      alert('Solo se pueden guardar fotos o documentos PDF.');
     }
   }
+
+
 
   async function saveInvoiceDocument() {
     const title = document.getElementById('invTitle').value.trim();
@@ -3791,7 +3868,15 @@
     const invoiceId = uniqueId('inv_');
     let photoForState = currentInvoiceBase64 || '';
     let archivoId = null;
-    if (storageMode === 'idb' && photoForState.startsWith('data:image')) {
+    const pdf = currentInvoicePdf;
+    if (pdf) {
+      try {
+        await idbPut('files', invoiceId, pdf);
+        archivoId = invoiceId;
+      } catch (err) {
+        return alert('No se pudo guardar el PDF en el dispositivo (' + (err.message || err) + '). La factura no se guardó.');
+      }
+    } else if (storageMode === 'idb' && photoForState.startsWith('data:image')) {
       try {
         await idbPut('files', invoiceId, await (await fetch(photoForState)).blob());
         archivoId = invoiceId;
@@ -3810,7 +3895,8 @@
       fecha: new Date().toISOString(),
       url_archivo: photoForState,
       archivo_id: archivoId,
-      tipo_archivo: currentInvoiceBase64 && currentInvoiceBase64.includes('pdf') ? 'application/pdf' : 'image/jpeg'
+      tipo_archivo: pdf ? 'application/pdf' : (archivoId || photoForState ? 'image/jpeg' : null),
+      nombre_archivo: pdf ? (pdf.name || 'factura.pdf') : null
     };
 
     state.invoices.unshift(newInvoice);
@@ -3863,7 +3949,9 @@
 
     grid.innerHTML = filtered.map(inv => `
       <div class="invoice-card" onclick="openInvoiceViewer(${jsArg(inv.id)})">
-        ${(inv.url_archivo && inv.url_archivo.startsWith('data:image')) || inv.archivo_id || inv.foto_path
+        ${isPdfInvoice(inv)
+          ? `<div class="invoice-thumb pdf"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>PDF</div>`
+          : (inv.url_archivo && inv.url_archivo.startsWith('data:image')) || inv.archivo_id || inv.foto_path
           ? `<img class="invoice-thumb" alt="" data-invoice-id="${escapeHtml(inv.id)}">`
           : `<div class="invoice-thumb"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;vertical-align:-3px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>`
         }
@@ -3890,12 +3978,40 @@
 
     imgEl.style.display = 'none';
     imgEl.removeAttribute('src');
-    getInvoicePhotoUrl(inv).then(url => {
-      if (url && currentViewedInvoiceId === inv.id) {
-        imgEl.src = url;
-        imgEl.style.display = 'block';
+    const pdfBox = document.getElementById('viewerPdf');
+    const pdfLink = document.getElementById('viewerPdfLink');
+    const pdfMsg = document.getElementById('viewerPdfMsg');
+    pdfBox.hidden = !isPdfInvoice(inv);
+    pdfLink.removeAttribute('href');
+    pdfLink.hidden = true;
+    pdfMsg.textContent = '';
+
+    if (isPdfInvoice(inv)) {
+      document.getElementById('viewerPdfName').textContent = inv.nombre_archivo || 'Documento PDF';
+      if (inv.url_archivo === LEGACY_PDF_PLACEHOLDER && !inv.archivo_id && !inv.foto_path) {
+        pdfMsg.textContent = 'Este PDF se registró antes de que la app guardara archivos PDF: el documento no se conservó. Súbelo de nuevo si lo necesitas.';
+      } else {
+        pdfMsg.textContent = 'Cargando…';
+        getInvoicePhotoUrl(inv).then(url => {
+          if (currentViewedInvoiceId !== inv.id) return;
+          if (url) {
+            pdfLink.href = url;
+            pdfLink.download = inv.nombre_archivo || 'factura.pdf';
+            pdfLink.hidden = false;
+            pdfMsg.textContent = '';
+          } else {
+            pdfMsg.textContent = 'No se encontró el archivo en este dispositivo ni en la nube.';
+          }
+        });
       }
-    });
+    } else {
+      getInvoicePhotoUrl(inv).then(url => {
+        if (url && currentViewedInvoiceId === inv.id) {
+          imgEl.src = url;
+          imgEl.style.display = 'block';
+        }
+      });
+    }
 
     document.getElementById('viewerMeta').innerHTML = `
       <b>Proveedor/Título:</b> ${escapeHtml(inv.titulo)}<br>
