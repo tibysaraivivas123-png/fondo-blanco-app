@@ -2023,6 +2023,11 @@
             <span>UTILIDAD NETA:</span>
             <span id="repNetProfit" style="color:var(--income);">$0</span>
           </div>
+          <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:12.5px; color:var(--text-muted);">
+            <span>Compras de mercancía del período:</span>
+            <b id="repPurchases">$0</b>
+          </div>
+          <p style="font-size:11px; color:var(--text-muted); margin-top:4px;">Las compras de mercancía no se restan aquí: su costo ya se descuenta en "Costo de Mercancía" cuando se vende. Sí salen del cajón en el arqueo si se pagaron en efectivo.</p>
         </div>
 
         <div class="card-title" style="margin-bottom:8px;">Ventas por Medio de Pago</div>
@@ -2243,9 +2248,16 @@
 
     <div style="background:var(--surface-inset); padding:10px; border-radius:8px; margin-bottom:14px; border:1px solid var(--border);">
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer; text-transform:none; font-size:12.5px; color:var(--text);">
-        <input type="checkbox" id="invRegisterAsExpense" style="width:auto; margin:0;" checked>
-        Registrar también como gasto en la caja de hoy
+        <input type="checkbox" id="invRegisterAsExpense" style="width:auto; margin:0;" checked onchange="document.getElementById('invPaymentSourceBox').hidden = !this.checked">
+        Registrar también como gasto
       </label>
+      <div id="invPaymentSourceBox" style="margin-top:8px;">
+        <label>¿De dónde sale el dinero?</label>
+        <select id="invPaymentSource">
+          <option value="efectivo_caja">Efectivo de la Caja Actual (descuenta del cajón)</option>
+          <option value="cuenta_externa">Transferencia Externa / Banco (no afecta el cajón)</option>
+        </select>
+      </div>
     </div>
 
     <div style="display:flex; gap:8px;">
@@ -3719,6 +3731,9 @@
     document.getElementById('invAmount').value = '';
     document.getElementById('invPreviewBox').style.display = 'none';
     document.getElementById('invFileInput').value = '';
+    document.getElementById('invRegisterAsExpense').checked = true;
+    document.getElementById('invPaymentSource').value = 'efectivo_caja';
+    document.getElementById('invPaymentSourceBox').hidden = false;
     currentInvoiceBase64 = null;
     document.getElementById('uploadInvoiceModal').classList.add('active');
   }
@@ -3766,6 +3781,10 @@
     const amount = Number(document.getElementById('invAmount').value || 0);
     const cat = document.getElementById('invCat').value;
     const registerExpense = document.getElementById('invRegisterAsExpense').checked;
+    // Antes siempre quedaba como efectivo: una factura pagada por
+    // transferencia bajaba el efectivo esperado del arqueo (A-2, auditoría
+    // 2026-10-02).
+    const paymentSource = document.getElementById('invPaymentSource').value;
 
     if (!title) return alert('Por favor indica el título o proveedor de la factura.');
 
@@ -3804,7 +3823,7 @@
         tipo: 'gasto',
         concepto: `Factura: ${title}`,
         categoria: cat === 'Mercancía' ? 'Mercancía / Proveedores' : cat,
-        metodo_pago: 'efectivo',
+        metodo_pago: paymentSource === 'cuenta_externa' ? 'transferencia' : 'efectivo',
         valor: amount,
         fecha: new Date().toISOString()
       };
@@ -5686,14 +5705,27 @@
     });
   }
 
-  function renderReportsScreen() {
-    const moves = getFilteredMovements(currentReportRange);
+  // Una compra de mercancía no es un gasto del período: es inventario. Su
+  // costo entra a la utilidad cuando se VENDE (costo_total de cada venta).
+  // Restarla también como gasto descontaba la mercancía dos veces (A-1,
+  // auditoría 2026-10-02: comprar 24 a 2.500 y venderlas a 4.000 mostraba
+  // -24.000 en vez de +36.000). /pos-invariantes 11.
+  function isInventoryPurchase(m) {
+    return m.tipo === 'gasto' && (!!m.producto_id || m.categoria === 'Mercancía / Proveedores');
+  }
 
+  function profitSummary(moves) {
     const sales = moves.filter(m => m.tipo === 'ingreso').reduce((sum, m) => sum + m.valor, 0);
     const cogs = moves.filter(m => m.tipo === 'ingreso').reduce((sum, m) => sum + (m.costo_total || 0), 0);
-    const grossProfit = sales - cogs;
-    const expenses = moves.filter(m => m.tipo === 'gasto').reduce((sum, m) => sum + m.valor, 0);
-    const netProfit = grossProfit - expenses;
+    const operating = moves.filter(m => m.tipo === 'gasto' && !isInventoryPurchase(m)).reduce((sum, m) => sum + m.valor, 0);
+    const purchases = moves.filter(isInventoryPurchase).reduce((sum, m) => sum + m.valor, 0);
+    return { sales, cogs, grossProfit: sales - cogs, expenses: operating, purchases, netProfit: sales - cogs - operating };
+  }
+
+  function renderReportsScreen() {
+    const moves = getFilteredMovements(currentReportRange);
+    const { sales, cogs, grossProfit, expenses, purchases, netProfit } = profitSummary(moves);
+    document.getElementById('repPurchases').textContent = money(purchases);
 
     document.getElementById('repSales').textContent = money(sales);
     document.getElementById('repCogs').textContent = money(cogs);
@@ -5760,11 +5792,7 @@
 
   function copyReportWhatsApp() {
     const moves = getFilteredMovements(currentReportRange);
-    const sales = moves.filter(m => m.tipo === 'ingreso').reduce((sum, m) => sum + m.valor, 0);
-    const expenses = moves.filter(m => m.tipo === 'gasto').reduce((sum, m) => sum + m.valor, 0);
-    const cogs = moves.filter(m => m.tipo === 'ingreso').reduce((sum, m) => sum + (m.costo_total || 0), 0);
-    const grossProfit = sales - cogs;
-    const netProfit = grossProfit - expenses;
+    const { sales, expenses, purchases, netProfit } = profitSummary(moves);
 
     // Un renglón por medio de pago. Antes había un solo "Nequi/Tarjetas"
     // calculado como ventas - efectivo, que contaba lo FIADO como si fuera
@@ -5781,8 +5809,9 @@
 ━━━━━━━━━━━━━━━━━━━━
 💰 *Ventas Totales:* ${money(sales)}
 ${methodLines}
-💸 *Gastos:* ${money(expenses)}
+💸 *Gastos operativos:* ${money(expenses)}
 📈 *Ganancia Neta:* ${money(netProfit)}
+📦 Compras de mercancía: ${money(purchases)}
 ━━━━━━━━━━━━━━━━━━━━
 Control simple. Negocio claro. 🍻`;
 
